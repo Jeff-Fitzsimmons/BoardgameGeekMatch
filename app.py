@@ -43,69 +43,89 @@ def transform_data(data):
     return transformed
 
 ###############################################################################
-# 2. TOKEN-BASED MATCHING LOGIC
-#    - Remove punctuation, lowercase, strip out stopwords ("of","the","and")
-#    - For single-token titles, require exact match (so "ARKS" != "PARKS")
-#    - For multi-token titles, allow subset overlap (e.g. "SETI" matches "SETI Search...")
+# 2. TOKEN-BASED MATCHING + NUMBER NORMALIZATION
 ###############################################################################
 
 STOPWORDS = {"of", "the", "and"}
+
+# For demonstration, we'll map digits and spelled-out numbers up to 20
+# to a canonical word form. You can expand this for higher numbers if needed.
+NUMBER_MAP = {
+    "0": "zero",    "zero": "zero",
+    "1": "one",     "one": "one",
+    "2": "two",     "two": "two",
+    "3": "three",   "three": "three",
+    "4": "four",    "four": "four",
+    "5": "five",    "five": "five",
+    "6": "six",     "six": "six",
+    "7": "seven",   "seven": "seven",
+    "8": "eight",   "eight": "eight",
+    "9": "nine",    "nine": "nine",
+    "10": "ten",    "ten": "ten",
+    "11": "eleven", "eleven": "eleven",
+    "12": "twelve", "twelve": "twelve",
+    "13": "thirteen", "thirteen": "thirteen",
+    "14": "fourteen", "fourteen": "fourteen",
+    "15": "fifteen",  "fifteen": "fifteen",
+    "16": "sixteen",  "sixteen": "sixteen",
+    "17": "seventeen","seventeen": "seventeen",
+    "18": "eighteen", "eighteen": "eighteen",
+    "19": "nineteen", "nineteen": "nineteen",
+    "20": "twenty",   "twenty": "twenty"
+}
 
 def normalize_and_tokenize(title: str):
     """
     1) Lowercase
     2) Remove punctuation
     3) Split on whitespace
-    4) Remove stopwords
-    5) Return list of tokens
-
-    Example:
-      "War of the Ring" -> ["war", "ring"]
-      "ARKS" -> ["arks"]
-      "PARKS" -> ["parks"]
+    4) Remove stopwords ("of","the","and")
+    5) Convert digits/spelled-out numbers to a canonical form 
+       (e.g., "7" -> "seven", "ten" -> "ten")
+    6) Return list of tokens
     """
     s = title.lower()
     s = re.sub(r"[^\w\s]", "", s)  # remove punctuation
     tokens = s.split()
-    tokens = [t for t in tokens if t not in STOPWORDS]  # remove "of","the","and"
-    return tokens
+    
+    filtered_tokens = []
+    for t in tokens:
+        if t in STOPWORDS:
+            # skip if it's a stopword
+            continue
+        
+        # If t is in NUMBER_MAP (digit or spelled-out), unify it
+        if t in NUMBER_MAP:
+            t = NUMBER_MAP[t]  # e.g. "7" -> "seven"
+
+        filtered_tokens.append(t)
+
+    return filtered_tokens
 
 def token_based_match(title_a: str, title_b: str) -> bool:
     """
-    1) Convert both titles to tokens.
-    2) If both sides end up with exactly one token each, we require EXACT match.
-       e.g. "arks" == "arks" -> True, but "arks" != "parks".
-    3) Otherwise, we do a "subset" check:
-       - If all tokens in A are in B, OR all tokens in B are in A, it's a match.
+    1) Tokenize both titles (lowercase, remove punctuation, unify numbers).
+    2) If both are exactly one token each, require exact equality.
+    3) Otherwise, do a subset check:
+       - all tokens of A in B, or all tokens of B in A
     """
     tokens_a = normalize_and_tokenize(title_a)
     tokens_b = normalize_and_tokenize(title_b)
 
-    # Special case: both single-token
+    # If both sides have exactly one token, require direct match
     if len(tokens_a) == 1 and len(tokens_b) == 1:
         return tokens_a[0] == tokens_b[0]
 
-    # Otherwise, do subset matching:
-    # (for partial matching in multi-word titles, e.g. "SETI" -> ["seti"]
-    # vs. "seti search for intelligence" -> ["seti", "search", "for", "intelligence"])
+    # Otherwise, subset logic
     subset_ab = all(t in tokens_b for t in tokens_a)
     subset_ba = all(t in tokens_a for t in tokens_b)
     return subset_ab or subset_ba
 
 def compare_users(user_dict, other_dict):
     """
-    Nested loop: for each user_game in user_dict, for each other_game in other_dict,
-    check token_based_match. If match, add dot product of weights to 'score'.
-
-    Returns:
-      - similarity score (int)
-      - overlap_details (list of dicts)
-        Each overlap dict: {
-            "game_user": str,
-            "game_other": str,
-            "your_rank": int,
-            "their_rank": int
-        }
+    For each game in user_dict vs. other_dict, 
+    use token_based_match to see if they match.
+    Sum up the dot product of matching weights.
     """
     overlap_details = []
     score = 0
@@ -128,10 +148,8 @@ def compare_users(user_dict, other_dict):
 
 def find_top_matches(new_user_list, transformed_data, top_n=20):
     """
-    new_user_list = [(game_title, rank), ...] e.g. rank=1..10
-    1) Build a dict for the new user
-    2) Compare with each person in transformed_data
-    3) Sort by descending score; return top N
+    new_user_list = [(game_title, rank), ...]
+    Build a dict for the new user, compare with each person, sort by similarity.
     """
     new_user_dict = {}
     for (game, rank) in new_user_list:
@@ -149,7 +167,6 @@ def find_top_matches(new_user_list, transformed_data, top_n=20):
             "overlap": overlap_details
         })
     
-    # sort by highest similarity
     results.sort(key=lambda x: x["score"], reverse=True)
     return results[:top_n]
 
@@ -157,7 +174,7 @@ def find_top_matches(new_user_list, transformed_data, top_n=20):
 # 3. STREAMLIT APP
 ###############################################################################
 
-DATA_FILE = "boardgame_data.csv"  # Make sure this file is present in the same folder
+DATA_FILE = "boardgame_data.csv"  # or "sample_boardgame_data.csv"
 raw_data = load_data(DATA_FILE)
 transformed_data = transform_data(raw_data)
 
@@ -166,6 +183,7 @@ st.write("Based on the 2024 dataset compiled by BGG user vitus979 ")
 
 st.write("Enter your **Top 10** board games in order of preference (1 = most favorite).")
 st.write("We'll compare them against our dataset of almost 150  board game reviewers' and pundits 'Best of 2024' lists and show your best matches.")
+
 
 user_games_input = []
 for i in range(1, 11):
@@ -177,7 +195,6 @@ if st.button("Find Matches"):
     if not user_games_input:
         st.warning("Please enter at least one board game.")
     else:
-        # Compare user input with the dataset
         top_matches = find_top_matches(user_games_input, transformed_data, top_n=20)
         
         st.subheader("Top 20 Matches")
