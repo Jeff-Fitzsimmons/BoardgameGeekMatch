@@ -162,10 +162,11 @@ raw_data = load_data(DATA_FILE)
 transformed_data = transform_data(raw_data)
 
 st.title("Geek Match")
+st.write("Based on the 2024 dataset compiled by BGG user vitus979 ")
 
 st.write("Enter your **Top 10** board games in order of preference (1 = most favorite).")
 st.write("We'll compare them against our dataset of almost 150  board game reviewers' and pundits 'Best of 2024' lists and show your best matches.")
-st.write("Based on the 2024 dataset compiled by BGG user vitus979 ")
+
 user_games_input = []
 for i in range(1, 11):
     game_name = st.text_input(f"Enter your number {i} game:", value="", key=f"game_{i}")
