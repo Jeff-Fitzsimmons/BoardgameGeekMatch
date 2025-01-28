@@ -179,7 +179,7 @@ raw_data = load_data(DATA_FILE)
 transformed_data = transform_data(raw_data)
 
 st.title("Geek Match")
-st.write("Based on the 2024 dataset compiled by BGG user vitus979 ")
+st.info("Based on the 2024 dataset compiled by BGG user vitus979 ")
 
 st.write("Enter your **Top 10** board games in order of preference (1 = most favorite).")
 st.write("We'll compare them against our dataset of nearly 150 board game reviewers 'Best of 2024' lists and show the ones that most closely match your tastes.")
