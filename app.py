@@ -38,52 +38,81 @@ def transform_data(data):
         for game, rank in games_ranks:
             transformed[person][game] = {
                 "rank": rank,
-                "weight": 11 - rank
+                "weight": 11 - rank  # rank=1 => weight=10, rank=10 => weight=1
             }
     return transformed
 
 ###############################################################################
-# 2. FLEXIBLE MATCHING LOGIC
+# 2. TOKEN-BASED MATCHING LOGIC
+#    - Remove punctuation, lowercase, strip out stopwords ("of","the","and")
+#    - For single-token titles, require exact match (so "ARKS" != "PARKS")
+#    - For multi-token titles, allow subset overlap (e.g. "SETI" matches "SETI Search...")
 ###############################################################################
 
-def normalize_title(s: str) -> str:
-    """
-    Convert to lowercase, remove punctuation, strip extra spaces.
-    Example: "Endeavor: Deep Sea" => "endeavor deep sea"
-    """
-    s = s.lower()
-    s = re.sub(r"[^\w\s]", "", s)  # remove punctuation
-    s = s.strip()
-    return s
+STOPWORDS = {"of", "the", "and"}
 
-def partial_match(title_a: str, title_b: str) -> bool:
+def normalize_and_tokenize(title: str):
     """
-    Returns True if the normalized strings match by substring inclusion.
+    1) Lowercase
+    2) Remove punctuation
+    3) Split on whitespace
+    4) Remove stopwords
+    5) Return list of tokens
+
     Example:
-      partial_match("SETI", "SETI Search...") => True
-      partial_match("Endeavor Deep Sea", "Endeavor: Deep Sea") => True
+      "War of the Ring" -> ["war", "ring"]
+      "ARKS" -> ["arks"]
+      "PARKS" -> ["parks"]
     """
-    norm_a = normalize_title(title_a)
-    norm_b = normalize_title(title_b)
-    return (norm_a in norm_b) or (norm_b in norm_a)
+    s = title.lower()
+    s = re.sub(r"[^\w\s]", "", s)  # remove punctuation
+    tokens = s.split()
+    tokens = [t for t in tokens if t not in STOPWORDS]  # remove "of","the","and"
+    return tokens
+
+def token_based_match(title_a: str, title_b: str) -> bool:
+    """
+    1) Convert both titles to tokens.
+    2) If both sides end up with exactly one token each, we require EXACT match.
+       e.g. "arks" == "arks" -> True, but "arks" != "parks".
+    3) Otherwise, we do a "subset" check:
+       - If all tokens in A are in B, OR all tokens in B are in A, it's a match.
+    """
+    tokens_a = normalize_and_tokenize(title_a)
+    tokens_b = normalize_and_tokenize(title_b)
+
+    # Special case: both single-token
+    if len(tokens_a) == 1 and len(tokens_b) == 1:
+        return tokens_a[0] == tokens_b[0]
+
+    # Otherwise, do subset matching:
+    # (for partial matching in multi-word titles, e.g. "SETI" -> ["seti"]
+    # vs. "seti search for intelligence" -> ["seti", "search", "for", "intelligence"])
+    subset_ab = all(t in tokens_b for t in tokens_a)
+    subset_ba = all(t in tokens_a for t in tokens_b)
+    return subset_ab or subset_ba
 
 def compare_users(user_dict, other_dict):
     """
-    user_dict and other_dict are dicts of form:
-      {
-        original_title: { "rank": r, "weight": w }
-      }
-    We do a nested loop to find partial matches, sum dot product of weights.
+    Nested loop: for each user_game in user_dict, for each other_game in other_dict,
+    check token_based_match. If match, add dot product of weights to 'score'.
+
     Returns:
       - similarity score (int)
       - overlap_details (list of dicts)
+        Each overlap dict: {
+            "game_user": str,
+            "game_other": str,
+            "your_rank": int,
+            "their_rank": int
+        }
     """
     overlap_details = []
     score = 0
     
     for user_game, user_info in user_dict.items():
         for other_game, other_info in other_dict.items():
-            if partial_match(user_game, other_game):
+            if token_based_match(user_game, other_game):
                 user_weight = user_info["weight"]
                 other_weight = other_info["weight"]
                 score += user_weight * other_weight
@@ -99,8 +128,10 @@ def compare_users(user_dict, other_dict):
 
 def find_top_matches(new_user_list, transformed_data, top_n=20):
     """
-    new_user_list = [(game, rank), ...] for up to 10 entries.
-    We'll build a dict that matches transformed_data's structure, then compare.
+    new_user_list = [(game_title, rank), ...] e.g. rank=1..10
+    1) Build a dict for the new user
+    2) Compare with each person in transformed_data
+    3) Sort by descending score; return top N
     """
     new_user_dict = {}
     for (game, rank) in new_user_list:
@@ -118,7 +149,7 @@ def find_top_matches(new_user_list, transformed_data, top_n=20):
             "overlap": overlap_details
         })
     
-    # sort by descending similarity
+    # sort by highest similarity
     results.sort(key=lambda x: x["score"], reverse=True)
     return results[:top_n]
 
@@ -126,15 +157,14 @@ def find_top_matches(new_user_list, transformed_data, top_n=20):
 # 3. STREAMLIT APP
 ###############################################################################
 
-DATA_FILE = "boardgame_data.csv"  # your main dataset
+DATA_FILE = "boardgame_data.csv"  # Make sure this file is present in the same folder
 raw_data = load_data(DATA_FILE)
 transformed_data = transform_data(raw_data)
 
-# Updated Title
 st.title("Geek Match")
 
-st.write("Enter your top 10 board games in order of preference.")
-st.write("(1 = most favorite, 10 = tenth favorite)")
+st.write("Enter your **Top 10** board games in order of preference (1 = most favorite).")
+st.write("We'll compare them against our dataset and show your best matches.")
 
 user_games_input = []
 for i in range(1, 11):
@@ -146,7 +176,7 @@ if st.button("Find Matches"):
     if not user_games_input:
         st.warning("Please enter at least one board game.")
     else:
-        # Perform matching
+        # Compare user input with the dataset
         top_matches = find_top_matches(user_games_input, transformed_data, top_n=20)
         
         st.subheader("Top 20 Matches")
