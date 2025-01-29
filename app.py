@@ -15,6 +15,7 @@ def load_data(csv_file):
       }
     """
     data = {}
+    all_games ={}
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -22,7 +23,8 @@ def load_data(csv_file):
             game = row["board_game"]
             rank = int(row["rank"])
             data.setdefault(name, []).append((game, rank))
-    return data
+            all_games.setdefault(game)
+    return data, all_games
 
 def transform_data(data):
     """
@@ -41,6 +43,7 @@ def transform_data(data):
                 "weight": 11 - rank  # rank=1 => weight=10, rank=10 => weight=1
             }
     return transformed
+
 
 ###############################################################################
 # 2. TOKEN-BASED MATCHING WITH STOPWORDS & NUMBER NORMALIZATION
@@ -193,8 +196,9 @@ def find_top_matches(new_user_list, transformed_data, top_n=20):
 ###############################################################################
 
 DATA_FILE = "boardgame_data.csv"  # or "sample_boardgame_data.csv"
-raw_data = load_data(DATA_FILE)
+raw_data, all_games = load_data(DATA_FILE)
 transformed_data = transform_data(raw_data)
+
 
 st.title("Geek Match")
 st.write("Based on the 2024 dataset compiled by BGG user vitus979 ")
@@ -205,9 +209,9 @@ st.info("We'll compare them against our dataset of nearly 150 board game reviewe
 
 user_games_input = []
 for i in range(1, 11):
-    game_name = st.text_input(f"Enter your number {i} game:", value="", key=f"game_{i}")
-    if game_name.strip():
-        user_games_input.append((game_name, i))
+    game_name = st.multiselect(f"Select your number {i} game:", all_games, key=f"game_{i}")
+    if game_name:
+        user_games_input.append((game_name[0], i))    
 
 if st.button("Find Matches"):
     if not user_games_input:
